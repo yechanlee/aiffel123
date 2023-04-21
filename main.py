@@ -1,52 +1,100 @@
-import pandas as pd
+import warnings
+
+warnings.filterwarnings("ignore")
+
 import os
+from os.path import join
 
-# seaborn 불러오기
+import pandas as pd
+import numpy as np
+
+from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
+from xgboost import XGBRegressor
+from lightgbm import LGBMRegressor
+from sklearn.model_selection import KFold, cross_val_score
+import xgboost as xgb
+import lightgbm as lgb
+
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error
+
 import seaborn as sns
-#matplotlib 불러오기
-from matplotlib import pyplot as plt
+import matplotlib.pyplot as plt
 
-#데이터를 train  변수로 가져옵니다.
-train = pd.read_csv("C:/Users/yechan/Downloads/bike-sharing-demand/train.csv")
+% matplotlib
+inline
+% config
+InlineBackend.figure_format = 'retina'
 
-train['year'] = pd.DatetimeIndex(train['datetime']).year
-train['month'] = pd.DatetimeIndex(train['datetime']).month
-train['day'] = pd.DatetimeIndex(train['datetime']).day
-train['hour'] = pd.DatetimeIndex(train['datetime']).hour
-train['minute'] = pd.DatetimeIndex(train['datetime']).minute
-train['second'] = pd.DatetimeIndex(train['datetime']).second
+# --------------------------------------------------------------------------------------------------------------------------------------
+data_dir = os.getenv('HOME') + '/aiffel/kaggle_kakr_housing/data'
+
+train_data_path = join(data_dir, 'train.csv')
+test_data_path = join(data_dir, 'test.csv')
+
+train = pd.read_csv(train_data_path)
+test = pd.read_csv(test_data_path)
+
+# --------------------------------------------------------------------------------------------------------------------------------------
+train['date'] = train['date'].apply(lambda i: i[:6]).astype(int)
+
+y = train['price']
+del train['price']
+del train['id']
+
+# --------------------------------------------------------------------------------------------------------------------------------------
+test['date'] = test['date'].apply(lambda i: i[:6]).astype(int)
+
+del test['id']
+
+# --------------------------------------------------------------------------------------------------------------------------------------
+y = np.log1p(y)
 
 
-#plt.subplots함수로 "도화지(figure)" 및 "축(axis)" 그리기
-fig, axes = plt.subplots(2,3, figsize=(15,10))
-axes = axes.flatten()
+# --------------------------------------------------------------------------------------------------------------------------------------
+def rmse(y_test, y_pred):
+    return np.sqrt(mean_squared_error(np.expm1(y_test), np.expm1(y_pred)))
 
-# 그래프 제목 정하기
-fig.suptitle('time count visualization')
 
-#sns.countplot함수를 이용하여 그래프 그리기
-sns.countplot(train["year"],ax = axes[0])
-sns.countplot(train["month"],ax = axes[1])
-sns.countplot(train["day"],ax = axes[2])
-sns.countplot(train["hour"],ax = axes[3])
-sns.countplot(train["minute"],ax = axes[4])
-sns.countplot(train["second"],ax = axes[5])
-fig.show()
-fig.show()
+# --------------------------------------------------------------------------------------------------------------------------------------
+random_state = 2020
 
-#plt.subplots함수로 "도화지(figure)" 및 "축(axis)" 그리기
-fig, axes = plt.subplots(2,3, figsize=(15,10))
-axes = axes.flatten()
+gboost = GradientBoostingRegressor(random_state=random_state)
+xgboost = XGBRegressor(random_state=random_state)
+lightgbm = LGBMRegressor(random_state=random_state)
+rdforest = RandomForestRegressor(random_state=random_state)
 
-# 그래프 제목 정하기
-fig.suptitle('time count visualization')
+models = [gboost, xgboost, lightgbm, rdforest]
 
-#sns.countplot함수를 이용하여 그래프 그리기
-sns.countplot(train["year"],ax = axes[0])
-sns.countplot(train["month"],ax = axes[1])
-sns.countplot(train["day"],ax = axes[2])
-sns.countplot(train["hour"],ax = axes[3])
-sns.countplot(train["minute"],ax = axes[4])
-sns.countplot(train["second"],ax = axes[5])
-fig.show()
-fig.show()
+
+# --------------------------------------------------------------------------------------------------------------------------------------
+def get_scores(models, train, y):
+    # 답안 작성
+    df = {}
+
+    for model in models:
+        model_name = model.__class__.__name__
+
+        X_train, X_test, y_train, y_test = train_test_split(train, y, random_state=random_state, test_size=0.2)
+        model.fit(X_train, y_train)
+        y_pred = model.predict(X_test)
+
+        df[model_name] = rmse(y_test, y_pred)
+        score_df = pd.DataFrame(df, index=['RMSE']).T.sort_values('RMSE', ascending=False)
+
+    return score_df
+
+
+get_scores(models, train, y)
+
+def save_submission(model, train, y, test, model_name, rmsle=None):
+    model.fit(train, y)
+    prediction = model.predict(test)
+    prediction = np.expm1(prediction)
+    data_dir = os.getenv('HOME')+'/aiffel/kaggle_kakr_housing/data'
+    submission_path = join(data_dir, 'sample_submission.csv')
+    submission = pd.read_csv(submission_path)
+    submission['price'] = prediction
+    submission_csv_path = '{}/submission_{}_RMSLE_{}.csv'.format(data_dir, model_name, rmsle)
+    submission.to_csv(submission_csv_path, index=False)
+    print('{} saved!'.format(submission_csv_path))
